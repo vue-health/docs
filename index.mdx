@@ -1,0 +1,42 @@
+---
+title: VUE Nexus API
+description: Internal API reference for the VUE Nexus healthcare engagement platform.
+---
+
+## Overview
+
+VUE Nexus is a HIPAA-aware healthcare engagement platform built on **Astro + Cloudflare Edge**, backed by **Supabase** and **Drizzle ORM**.
+
+All API routes are server-rendered Astro endpoints deployed to Cloudflare Pages/Workers. They are **not a public REST API** — they are session-authenticated internal endpoints consumed by the frontend.
+
+## Authentication
+
+All protected endpoints require an active Supabase SSR session established via `POST /api/auth/signin`. The session is stored as an HTTP-only cookie (`sb-access-token`) and is automatically included in browser requests.
+
+MFA (TOTP) is enforced for all user accounts. The sign-in flow returns one of three states:
+
+| Response field | Meaning |
+|---|---|
+| `success: true` | Fully authenticated, session ready |
+| `mfaRequired: true` | User must complete TOTP challenge |
+| `mfaEnrollRequired: true` | User must enroll TOTP before continuing |
+
+## API groups
+
+| Group | Base path | Description |
+|---|---|---|
+| Authentication | `/api/auth/` | Sign in, sign out, session, password management, MFA |
+| Surveys | `/api/survey/` | Create, send, and manage client surveys |
+| Engage | `/api/engage/` | Meetings, HCPs, topics, responses, chat |
+| Users & Accounts | `/api/users/`, `/api/account/` | User management, account settings |
+| Jobs & Tasks | `/api/jobs/`, `/api/tasks/` | Job and task CRUD |
+| Admin | `/api/admin/` | Admin-only operations |
+| Cron | `/api/cron/` | Internal scheduled jobs (cron-token protected) |
+| Audit | `/api/audit/` | HIPAA audit log access |
+
+## HIPAA notes
+
+- All PHI-adjacent endpoints are gated by `verifyAccountAccess` / `verifyEngageModerator` guards.
+- Successful access to PHI resources emits an audit log event with `outcome: 'success'` and a database UUID `resourceId`.
+- Denied access emits `outcome: 'denied'` with a `reason` field.
+- Never call audit log with `success` before authorization checks complete.

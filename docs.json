@@ -1,59 +1,99 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "VUE Nexus API",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6366f1",
+    "light": "#818cf8",
+    "dark": "#4f46e5"
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "pages": [
+    "anchors": [
       {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index"
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "API Reference",
+        "icon": "rectangle-terminal",
+        "groups": [
+          {
+            "group": "Authentication",
+            "openapi": {
+              "source": "openapi.yaml",
+              "directory": "api-reference"
+            },
+            "pages": [
+              "POST /api/auth/signin",
+              "POST /api/auth/signout",
+              "GET /api/auth/session",
+              "POST /api/auth/register",
+              "POST /api/auth/send-password-reset",
+              "POST /api/auth/update-password"
+            ]
+          },
+          {
+            "group": "Surveys",
+            "openapi": {
+              "source": "openapi.yaml",
+              "directory": "api-reference"
+            },
+            "pages": [
+              "POST /api/survey/create",
+              "POST /api/survey/update",
+              "POST /api/survey/send",
+              "GET /api/survey/all-created",
+              "GET /api/survey/all-sent",
+              "GET /api/survey/questions",
+              "POST /api/survey/scaffold",
+              "POST /api/survey/reset"
+            ]
+          },
+          {
+            "group": "Engage",
+            "openapi": {
+              "source": "openapi.yaml",
+              "directory": "api-reference"
+            },
+            "pages": [
+              "GET /api/engage/stats",
+              "GET /api/engage/meetings",
+              "GET /api/engage/hcp",
+              "GET /api/engage/topics",
+              "GET /api/engage/responses",
+              "GET /api/engage/chat"
+            ]
+          }
         ]
       }
-    ],
-    "groups": []
+    ]
   },
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg"
   },
+  "api": {
+    "openapi": [
+      "openapi.yaml"
+    ]
+  },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
       "type": "button",
       "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "href": "https://docs.vuesynctank.com"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    "socials": {}
   }
 }
