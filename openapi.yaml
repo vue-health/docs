@@ -1,0 +1,475 @@
+openapi: 3.1.0
+info:
+  title: VUE Nexus API
+  version: 1.0.0
+  description: |
+    Internal API for VUE Nexus — a HIPAA-aware healthcare engagement platform built on
+    Astro + Cloudflare Edge, backed by Supabase and Drizzle ORM.
+
+    All endpoints are server-rendered Astro API routes deployed to Cloudflare Pages/Workers.
+    Authentication is cookie-based via Supabase SSR sessions.
+  contact:
+    name: VUE Nexus Engineering
+
+servers:
+  - url: https://docs.vuesynctank.com
+    description: Production
+  - url: http://localhost:4321
+    description: Local dev
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sb-access-token
+      description: Supabase SSR session cookie set automatically on sign-in.
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    SignInRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required: [email, password]
+
+    SignInResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        multipleAccounts:
+          type: boolean
+          description: True if the user belongs to more than one account.
+        mfaRequired:
+          type: boolean
+          description: Present when the user has TOTP enrolled and must complete MFA.
+        factorId:
+          type: string
+          description: The TOTP factor ID to challenge (present only when mfaRequired is true).
+        mfaEnrollRequired:
+          type: boolean
+          description: Present when the user has no MFA enrolled and must set it up.
+
+    SessionResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+
+    # ── Survey ────────────────────────────────────────────────────────────────
+    SurveyCreateRequest:
+      type: object
+      properties:
+        taskType:
+          type: string
+          description: Internal name / task type label for this survey.
+        surveyType:
+          type: string
+          description: Category key (e.g. "pre-visit", "post-visit").
+        active:
+          type: boolean
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SurveyQuestionInput"
+      required: [taskType, surveyType]
+
+    SurveyQuestionInput:
+      type: object
+      properties:
+        questionText:
+          type: string
+        questionType:
+          type: string
+          enum: [text, multiple_choice, rating, yes_no]
+        required:
+          type: boolean
+        order:
+          type: integer
+      required: [questionText, questionType, order]
+
+    SurveyCreateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: URL-safe slug derived from taskType.
+
+    # ── Engage ────────────────────────────────────────────────────────────────
+    EngageStatsResponse:
+      type: object
+      description: Aggregate meeting and participant statistics.
+      properties:
+        totalMeetings:
+          type: integer
+        activeMeetings:
+          type: integer
+        totalParticipants:
+          type: integer
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+paths:
+
+  # ─────────────────────────────────────────────────────────
+  # AUTH
+  # ─────────────────────────────────────────────────────────
+  /api/auth/signin:
+    post:
+      operationId: authSignIn
+      tags: [Authentication]
+      summary: Sign in with email and password
+      description: |
+        Authenticates a user against Supabase and establishes an SSR cookie session.
+        Enforces IP-based rate limiting (5 attempts → 15-minute block).
+
+        Returns one of:
+        - `{ success: true, multipleAccounts: bool }` — fully authenticated
+        - `{ mfaRequired: true, factorId }` — TOTP challenge needed
+        - `{ mfaEnrollRequired: true }` — user must enroll MFA first
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+      responses:
+        "200":
+          description: Authentication result (see description for variants)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "400":
+          description: Invalid credentials or missing fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many failed attempts — IP temporarily blocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/signout:
+    post:
+      operationId: authSignOut
+      tags: [Authentication]
+      summary: Sign out the current user
+      description: |
+        Calls Supabase SSR `signOut()`, clears all session cookies, and redirects to `/signin`.
+      security:
+        - cookieAuth: []
+      responses:
+        "302":
+          description: Redirect to /signin
+
+  /api/auth/session:
+    get:
+      operationId: authGetSession
+      tags: [Authentication]
+      summary: Get current session access token
+      description: Returns the Supabase access token for the current SSR session.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Active session token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "401":
+          description: No active session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/auth/register:
+    post:
+      operationId: authRegister
+      tags: [Authentication]
+      summary: Register a new user account
+      description: |
+        Creates a new Supabase auth user. On success, redirects to `/signin`
+        (with optional `returnTo` query param preserved).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                returnTo:
+                  type: string
+                  description: Optional path to redirect to after sign-in.
+              required: [email, password]
+      responses:
+        "302":
+          description: Redirect to /signin on success
+        "400":
+          description: Missing email or password
+        "500":
+          description: Supabase registration error
+
+  /api/auth/send-password-reset:
+    post:
+      operationId: authSendPasswordReset
+      tags: [Authentication]
+      summary: Send a password reset email
+      responses:
+        "200":
+          description: Reset email sent
+        "400":
+          description: Missing or invalid email
+
+  /api/auth/update-password:
+    post:
+      operationId: authUpdatePassword
+      tags: [Authentication]
+      summary: Update the authenticated user's password
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Password updated
+        "401":
+          description: Unauthorized
+
+  # ─────────────────────────────────────────────────────────
+  # SURVEY
+  # ─────────────────────────────────────────────────────────
+  /api/survey/create:
+    post:
+      operationId: surveyCreate
+      tags: [Surveys]
+      summary: Create a new survey
+      description: |
+        Creates a survey definition (`clientSurveyTypes`) with its associated questions
+        (`clientSurveyQuestions`). Returns the new survey UUID and a URL-safe code.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SurveyCreateRequest"
+      responses:
+        "200":
+          description: Survey created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SurveyCreateResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/survey/update:
+    post:
+      operationId: surveyUpdate
+      tags: [Surveys]
+      summary: Update an existing survey
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Survey updated
+
+  /api/survey/send:
+    post:
+      operationId: surveySend
+      tags: [Surveys]
+      summary: Send a survey to recipients
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Survey dispatched
+
+  /api/survey/all-created:
+    get:
+      operationId: surveyAllCreated
+      tags: [Surveys]
+      summary: List all created surveys for the account
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of survey definitions
+
+  /api/survey/all-sent:
+    get:
+      operationId: surveyAllSent
+      tags: [Surveys]
+      summary: List all sent survey instances
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of sent surveys
+
+  /api/survey/questions:
+    get:
+      operationId: surveyGetQuestions
+      tags: [Surveys]
+      summary: Get questions for a specific survey
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: surveyId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Array of survey questions
+
+  /api/survey/scaffold:
+    post:
+      operationId: surveyScaffold
+      tags: [Surveys]
+      summary: Scaffold a survey from a template
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Scaffolded survey definition
+
+  /api/survey/reset:
+    post:
+      operationId: surveyReset
+      tags: [Surveys]
+      summary: Reset a survey's responses
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Survey reset
+
+  # ─────────────────────────────────────────────────────────
+  # ENGAGE
+  # ─────────────────────────────────────────────────────────
+  /api/engage/stats:
+    get:
+      operationId: engageStats
+      tags: [Engage]
+      summary: Get aggregate meeting and engagement statistics
+      description: Returns counts and metrics for meetings, participants, and engagement activity.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Engagement statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngageStatsResponse"
+        "401":
+          description: Unauthorized
+
+  /api/engage/meetings:
+    get:
+      operationId: engageListMeetings
+      tags: [Engage]
+      summary: List meetings for the current account
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of meeting objects
+
+  /api/engage/hcp:
+    get:
+      operationId: engageListHcp
+      tags: [Engage]
+      summary: List HCP (Healthcare Providers) for the current account
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of HCP records
+
+  /api/engage/topics:
+    get:
+      operationId: engageListTopics
+      tags: [Engage]
+      summary: List discussion topics for meetings
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of topic objects
+
+  /api/engage/responses:
+    get:
+      operationId: engageListResponses
+      tags: [Engage]
+      summary: List recorded responses in engage sessions
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of response objects
+
+  /api/engage/chat:
+    get:
+      operationId: engageListChatMessages
+      tags: [Engage]
+      summary: Retrieve chat messages for an engage session
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Array of chat messages
